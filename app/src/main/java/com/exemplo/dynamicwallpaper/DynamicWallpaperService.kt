@@ -1,6 +1,7 @@
 package com.exemplo.dynamicwallpaper
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -30,11 +31,12 @@ class DynamicWallpaperService : WallpaperService() {
 
         private var sensorManager: SensorManager? = null
         private var accelerometer: Sensor? = null
+        private var prefs: SharedPreferences? = null
 
         private var smoothX = 0f
         private var smoothY = 0f
 
-        // Dithering e Anti-alias ativados para evitar color banding
+        // Dithering ativado para degradês suaves em telas de 8-bit
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             isDither = true
         }
@@ -43,9 +45,9 @@ class DynamicWallpaperService : WallpaperService() {
 
         override fun onCreate(surfaceHolder: SurfaceHolder?) {
             super.onCreate(surfaceHolder)
-            // Força renderização em 32-bit (8-bit reais por canal sem perda)
             surfaceHolder?.setFormat(PixelFormat.RGBA_8888)
 
+            prefs = getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE)
             sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
             accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         }
@@ -70,9 +72,10 @@ class DynamicWallpaperService : WallpaperService() {
                 val rawX = event.values[0]
                 val rawY = event.values[1]
 
-                // Movimento muito mais amortecido e sutil (0.05f)
-                smoothX += (rawX - smoothX) * 0.05f
-                smoothY += (rawY - smoothY) * 0.05f
+                // Lê o fator de suavização salvo pelo app (padrão: 0.05)
+                val lerpFactor = (prefs?.getInt("pref_lerp", 5) ?: 5) / 100f
+                smoothX += (rawX - smoothX) * lerpFactor
+                smoothY += (rawY - smoothY) * lerpFactor
             }
         }
 
@@ -91,12 +94,14 @@ class DynamicWallpaperService : WallpaperService() {
                     val centerX = width / 2f
                     val centerY = height / 2f
 
-                    // Deslocamento sutil e natural
-                    val shiftX = -smoothX * (width * 0.05f)
-                    val shiftY = smoothY * (height * 0.05f)
+                    // Lê as sensibilidades configuradas nos sliders
+                    val shiftFactor = (prefs?.getInt("pref_shift_sens", 5) ?: 5) / 100f
+                    val angleMultiplier = (prefs?.getInt("pref_angle_sens", 6) ?: 6).toDouble()
 
-                    // Ângulo contido para evitar saltos visuais na rotação
-                    val angle = Math.toRadians((smoothX * 6.0) + 90.0)
+                    val shiftX = -smoothX * (width * shiftFactor)
+                    val shiftY = smoothY * (height * shiftFactor)
+
+                    val angle = Math.toRadians((smoothX * angleMultiplier) + 90.0)
                     val radius = Math.max(width, height) * 0.85f
 
                     val x0 = (centerX + shiftX) - cos(angle).toFloat() * radius
@@ -128,8 +133,7 @@ class DynamicWallpaperService : WallpaperService() {
         }
 
         private fun getSelectedPaletteColors(): IntArray {
-            val prefs = getSharedPreferences("wallpaper_prefs", Context.MODE_PRIVATE)
-            return when (prefs.getString("selected_theme", "dynamic")) {
+            return when (prefs?.getString("selected_theme", "dynamic")) {
                 "aurora" -> intArrayOf(
                     Color.parseColor("#0F3E46"),
                     Color.parseColor("#1B6B76"),
